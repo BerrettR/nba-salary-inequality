@@ -4,7 +4,7 @@
 
 This repository examines how NBA intra-team salary structures influence team performance over the 2017-18 through 2023-24 seasons (210 team-season observations). By measuring pay dispersion among active players with an *Active Gini* and mapping it against a new *Composite Score*, the study quantifies whether concentrating salary on a few stars yields on-court benefits.
 
-**Motivation:** NBA front offices allocate payroll between star talent and role players under a hard cap. This research asks: *Do teams that pay top players disproportionately more than role players achieve better results?* Read the full paper in `docs/berrett-nba-competitive-roster-salary-inequality.pdf`.
+**Motivation:** NBA front offices allocate payroll between star talent and role players under a hard cap. This research asks: Do teams that pay top players disproportionately more than role players achieve better results? Read the full paper in `docs/berrett-nba-competitive-roster-salary-inequality.pdf`.
 
 ---
 
