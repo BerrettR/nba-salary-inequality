@@ -417,7 +417,7 @@ p3 <- ggplot(lagged, aes(Win_Loss_Pct, Next_WinPct)) +
   labs(title="Win % vs. Next Season Win %") +
   theme_minimal()
 
-
+grid.arrange(p1, p2, p3, ncol=1)
 
 ```
 
