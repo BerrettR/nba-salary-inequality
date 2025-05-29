@@ -1,101 +1,109 @@
 ---
-title: "R Notebook"
-output: html_notebook
----
 
-```{r}
-## 1. Setup ------------------------------------------------------------------
+title: "NBA Salary Inequality Analysis"
+output:
+html\_notebook:
+toc: true
+toc\_depth: 2
+-------------
+
+```{r setup, include=FALSE}
+# 1. Setup ------------------------------------------------------------------
 
 # 1.1 Packages
-library(readxl); library(openxlsx)
-library(dplyr);   library(tidyr)
-library(ggplot2); library(viridis); library(ggrepel)
-library(ineq);    library(forcats)
-library(lubridate); library(purrr)
-library(fredr);   # for CPI
-library(stringr); # for str_squish()
+library(readxl)
+library(openxlsx)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(viridis)
+library(ggrepel)
+library(ineq)
+library(forcats)
+library(lubridate)
+library(purrr)
+library(fredr)   # for CPI data
+library(stringr) # for str_squish()
+library(here)    # for relative paths
 
-# 1.2 FRED API
-fredr_set_key("9706a71c73999f7ec4325bd41443a3a5")
+# 1.2 FRED API --------------------------------------------------------------
+fred_api_key <- Sys.getenv("FRED_API_KEY")
+if (fred_api_key == "") {
+  stop("Please set the FRED_API_KEY environment variable before running this analysis.")
+}
+fredr_set_key(fred_api_key)
 
 # 1.3 Helper functions
 correct_team_abbreviation <- function(team) {
-  case_when(
-    team == "PHX"             ~ "PHO",
+  dplyr::case_when(
+    team == "PHX"                     ~ "PHO",
     team %in% c("BKN","NJN","NJA") ~ "BRK",
-    team %in% c("CHA","CHO")   ~ "CHA",
-    team %in% c("NOH","NOK")   ~ "NOP",
-    team == "WSB"             ~ "WAS",
-    team == "VAN"             ~ "MEM",
-    team == "SEA"             ~ "OKC",
-    team == "KCK"             ~ "SAC",
-    team == "SDC"             ~ "LAC",
-    TRUE                      ~ team
+    team %in% c("CHA","CHO")       ~ "CHA",
+    team %in% c("NOH","NOK")       ~ "NOP",
+    team == "WSB"                     ~ "WAS",
+    team == "VAN"                     ~ "MEM",
+    team == "SEA"                     ~ "OKC",
+    team == "KCK"                     ~ "SAC",
+    team == "SDC"                     ~ "LAC",
+    TRUE                                 ~ team
   )
 }
-
 ```
 
-```{r}
-## 2. Data import ------------------------------------------------------------
+```{r data-import}
+## 2. Data import -----------------------------------------------------------
 
-# Path to Excel
-excel_path <- "C:/Users/Rberr/OneDrive/Desktop/LOCAL_Berrett_NBA_DATA.xlsx"
+# Path to Excel (relative using here())
+excel_path <- here("data", "raw", "local-berrett-nba-data.xlsx")
 
-# Sheets
-player_detail <- read_excel(excel_path, "PLAYER DETAIL") %>%
+# Load sheets
+player_detail <- read_excel(excel_path, sheet = "PLAYER DETAIL") %>%
   mutate(Season = as.integer(Season),
          Team   = correct_team_abbreviation(Team))
 
-team_detail <- read_excel(excel_path, "TEAM DETAIL") %>%
+team_detail <- read_excel(excel_path, sheet = "TEAM DETAIL") %>%
   mutate(Season = as.integer(Season),
          Team   = correct_team_abbreviation(Team))
 
-team_val <- read_excel(excel_path, "Team_Val") %>%
+team_val <- read_excel(excel_path, sheet = "Team_Val") %>%
   rename(Team = Abbreviation,
          Valuation_B = `Valuation ($B)`) %>%
   mutate(Team = correct_team_abbreviation(Team))
 
-injury_data <- read_excel(excel_path, "Injury") %>%
+injury_data <- read_excel(excel_path, sheet = "Injury") %>%
   select(Season, Team, `PlayersSeason Cumulative`, `CashSeason Cumulative`) %>%
   rename(PlayersSeason_Cumulative = `PlayersSeason Cumulative`,
          CashSeason_Cumulative    = `CashSeason Cumulative`) %>%
   mutate(Season                = as.integer(Season),
          Team                  = correct_team_abbreviation(Team),
-         CashSeason_Cumulative = as.numeric(str_remove_all(CashSeason_Cumulative, "[$,]")))
-library(stringi)
-
-injury_data <- injury_data %>%
+         CashSeason_Cumulative = as.numeric(str_remove_all(CashSeason_Cumulative, "[$,]"))) %>%
   mutate(
-    # 1) strip out any non-ASCII bytes, 2) replace all runs of whitespace with a single space,
-    # 3) trim leading/trailing spaces
     Team = Team %>%
-      stri_trans_general("Latin-ASCII") %>%     # turn accented or weird chars into ASCII
-      str_replace_all("\\s+", " ") %>%           # collapse all whitespace runs
-      str_trim()                                 # drop leading/trailing spaces
+      stringi::stri_trans_general("Latin-ASCII") %>%
+      str_replace_all("\\s+", " ") %>%
+      str_trim()
   )
 
-
-vorp_data <- read_excel(excel_path, "VORP") %>%
+vorp_data <- read_excel(excel_path, sheet = "VORP") %>%
   mutate(Season = as.integer(Season),
          Team   = correct_team_abbreviation(Team))
 
-net_rtg_data <- read_excel(excel_path, "NET_RTG") %>%
+net_rtg_data <- read_excel(excel_path, sheet = "NET_RTG") %>%
   mutate(Season = as.integer(Season),
          Team   = correct_team_abbreviation(Team))
 
-playoff_data <- read_excel(excel_path, "Playoff") %>%
+playoff_data <- read_excel(excel_path, sheet = "Playoff") %>%
   mutate(Season = as.integer(Season),
          W_Team = correct_team_abbreviation(W_Team),
          L_Team = correct_team_abbreviation(L_Team))
 
-luxury_tax <- read_excel(excel_path, "Lux_Tax") %>%
+luxury_tax <- read_excel(excel_path, sheet = "Lux_Tax") %>%
   mutate(Season      = as.integer(Season),
          Team        = correct_team_abbreviation(str_squish(Team)),
          Pays_LuxTax = as.integer(Paid_Luxury_Tax > 0)) %>%
   select(Team, Season, Pays_LuxTax)
 
-gm_data <- read_excel(excel_path, "Team_Exec", na = ".") %>%
+gm_data <- read_excel(excel_path, sheet = "Team_Exec", na = ".") %>%
   mutate(Season = as.integer(Season),
          Team   = correct_team_abbreviation(str_squish(Team))) %>%
   select(Team, Season, GM_Name, GM_LastYear, GM_Turnover) %>%
@@ -104,10 +112,10 @@ gm_data <- read_excel(excel_path, "Team_Exec", na = ".") %>%
   ungroup()
 ```
 
-```{r}
-## 3. Valuation inflation adjustment ----------------------------------------
+```{r valuation-adjustment}
+## 3. Valuation Inflation Adjustment ---------------------------------------
 
-# 3.1 Pull CPI by calendar year
+# CPI data from FRED
 cpi_data <- fredr(
   series_id         = "CPIAUCSL",
   observation_start = as.Date("2015-01-01"),
@@ -115,140 +123,91 @@ cpi_data <- fredr(
 ) %>%
   mutate(Year = year(date)) %>%
   group_by(Year) %>%
-  summarise(avg_cpi = mean(value), .groups="drop")
+  summarise(avg_cpi = mean(value), .groups = "drop")
 
 latest_cpi <- cpi_data %>% filter(Year == max(Year)) %>% pull(avg_cpi)
 
-# 3.2 Inflate each raw valuation from its Fiscal_Year into "current" dollars
 team_val_adj <- team_val %>%
-  # match Fiscal_Year → CPI Year
-  left_join(cpi_data, by = c("Fiscal_Year" = "Year")) %>%
+  left_join(cpi_data, by = c("Valuation_Year" = "Year")) %>%
   mutate(
     Valuation_B_adj = Valuation_B * latest_cpi / avg_cpi
   ) %>%
-  # keep only the fields we need, and turn Valuation_Year into Season
-  select(
-    Team,
-    Season= Valuation_Year,
-    Valuation_B,
-    Valuation_B_adj
-  )
-
+  select(Team, Season = Valuation_Year, Valuation_B, Valuation_B_adj)
 ```
 
-```{r}
-## 4. Compute Gini & performance metrics ------------------------------------
+```{r compute-gini-perf}
+## 4. Compute Gini & Performance Metrics -----------------------------------
 
-# 4.1 Gini of cash shares
+# Overall Gini
 gini_data <- player_detail %>%
   group_by(Team, Season) %>%
   mutate(share = `Total Cash` / sum(`Total Cash`)) %>%
-  summarise(Gini = ifelse(n()>1, ineq(share, "Gini"), NA_real_), .groups="drop")
+  summarise(Gini = ifelse(n() > 1, ineq(share, "Gini"), NA_real_), .groups = "drop")
 
-# ==== 4.1a  Active-only Gini  ============================================
-# If player_detail already carries a `Type` column (Active / Retained / Dead …)
-# this is all you need.  If the flag is in another table, left-join it in first.
-
-active_gini_data <- player_detail %>%           # one row per player
-  filter(Type == "Active") %>%                  # ⬅️ keep active contracts only
+# Active-only Gini
+active_gini_data <- player_detail %>%
+  filter(Type == "Active") %>%
   group_by(Team, Season) %>%
   mutate(active_share = `Total Cash` / sum(`Total Cash`)) %>%
-  summarise(
-    Active_Gini = ifelse(n() > 1, ineq(active_share, "Gini"), NA_real_),
-    .groups = "drop"
-  )
+  summarise(Active_Gini = ifelse(n() > 1, ineq(active_share, "Gini"), NA_real_), .groups = "drop")
 
-# Merge side-by-side with the original (all-types) Gini
-gini_data <- gini_data %>%
-  left_join(active_gini_data, by = c("Team", "Season"))
+# Merge Gini
+gini_data <- gini_data %>% left_join(active_gini_data, by = c("Team", "Season"))
 
-
-# 4.2 Sum VORP and merge with Net Rating & Win%
+# Composite performance
 summed_vorp <- vorp_data %>%
   group_by(Team, Season) %>%
-  summarise(Total_VORP = sum(VORP, na.rm=TRUE), .groups="drop")
+  summarise(Total_VORP = sum(VORP, na.rm = TRUE), .groups = "drop")
 
 combined_perf <- summed_vorp %>%
-  inner_join(net_rtg_data %>% select(Team, Season, `ADJ Net RTG`, `W/L%`),
-             by = c("Team", "Season")) %>%
-  rename(Adj_Net_Rtg  = `ADJ Net RTG`,
-         Win_Loss_Pct = `W/L%`) %>%
+  inner_join(net_rtg_data %>% select(Team, Season, `ADJ Net RTG`, `W/L%`), by = c("Team", "Season")) %>%
+  rename(Adj_Net_Rtg = `ADJ Net RTG`, Win_Loss_Pct = `W/L%`) %>%
   mutate(
-    Norm_VORP        = (Total_VORP - min(Total_VORP)) / diff(range(Total_VORP)),
-    Norm_Net_Rtg     = (Adj_Net_Rtg - min(Adj_Net_Rtg)) / diff(range(Adj_Net_Rtg)),
-    Composite_Score  = Norm_VORP * Norm_Net_Rtg
+    Norm_VORP = (Total_VORP - min(Total_VORP)) / diff(range(Total_VORP)),
+    Norm_Net_Rtg = (Adj_Net_Rtg - min(Adj_Net_Rtg)) / diff(range(Adj_Net_Rtg)),
+    Composite_Score = Norm_VORP * Norm_Net_Rtg
   ) %>%
   arrange(Team, Season)
-
-
-
 ```
 
-```{r}
-## 5. Playoff summary -------------------------------------------------------
+```{r playoff-summary}
+## 5. Playoff Summary ------------------------------------------------------
 
 playoff_long <- playoff_data %>%
-  pivot_longer(c(W_Team, L_Team), names_to="Result", values_to="Team") %>%
+  pivot_longer(c(W_Team, L_Team), names_to = "Result", values_to = "Team") %>%
   mutate(
-    Team_Wins   = ifelse(Result=="W_Team", Games_Won, Games_Lost),
+    Team_Wins   = ifelse(Result == "W_Team", Games_Won, Games_Lost),
     Round       = sub("Eastern |Western ", "", Round),
-    Round_Order = factor(Round,
-                         levels=c("First Round","Conference Semifinals",
-                                  "Conference Finals","Finals"),
-                         ordered=TRUE)
+    Round_Order = factor(Round, levels = c("First Round", "Conference Semifinals","Conference Finals","Finals"), ordered = TRUE)
   )
 
-total_wins <- playoff_long %>%
-  group_by(Team, Season) %>%
-  summarise(TOTAL_PLAYOFF_WINS = sum(Team_Wins), .groups="drop")
+total_wins <- playoff_long %>% group_by(Team, Season) %>% summarise(TOTAL_PLAYOFF_WINS = sum(Team_Wins), .groups = "drop")
 
 furthest <- playoff_long %>%
   group_by(Team, Season) %>%
   arrange(desc(Round_Order)) %>%
-  slice_head(n=1) %>%
-  transmute(Furthest_RoundReached        = Round,
-            Furthest_RoundReached_Wins   = ifelse(Result=="W_Team", Games_Won, Games_Lost),
-            Furthest_RoundReached_Losses = ifelse(Result=="W_Team", Games_Lost, Games_Won))
-
-playoff_summary <- total_wins %>%
-  left_join(furthest, by=c("Team","Season"))
-
-```
-
-```{r}
-## 5.5 Cap‐Jump & Minimum‐Jump import ----------------------------------------
-
-# 5.5.1 Read in salary‐cap jumps
-capjump_data <- read_excel(
-  excel_path,
-  sheet    = "cap_jump",
-  na       = ".",
-  col_types = c("numeric","numeric","numeric")
-) %>%
-  rename(
-    Season      = Season,
-    CapMax_USD  = `CapMax (USD)`,
-    CapJump_USD = `CapJump (USD)`
+  slice_head(n = 1) %>%
+  transmute(
+    Furthest_RoundReached = Round,
+    Furthest_RoundReached_Wins = ifelse(Result == "W_Team", Games_Won, Games_Lost),
+    Furthest_RoundReached_Losses = ifelse(Result == "W_Team", Games_Lost, Games_Won)
   )
 
-# 5.5.2 Read in veteran‐min jump data
-min_jump_data <- read_excel(
-  excel_path,
-  sheet    = "min_jump",
-  na       = ".",
-  col_types = c("numeric","numeric","numeric")
-) %>%
-  rename(
-    Season      = Season,
-    VetMin0     = VetMin0,
-    MinJump_Pct = MinJump_Pct
-  )
-
+playoff_summary <- total_wins %>% left_join(furthest, by = c("Team","Season"))
 ```
 
-```{r}
+```{r salary-shares}
+## 6. Salary-Type Shares & Injury Cash ------------------------------------
 
-## 6. Merge all time‐series pieces & add valuations ------------------------
+salary_type_wide <- team_detail %>%
+  group_by(Team, Season, Type) %>%
+  summarise(Total_Spending = sum(`Total Cash`, na.rm = TRUE), .groups = "drop") %>%
+  group_by(Team, Season) %>%
+  mutate(Type_Percent = Total_Spending / sum(Total_Spending)) %>%
+  pivot_wider(names_from = Type, values_from = Type_Percent, values_fill = 0) %>%
+  rename_with(~ paste0("Pct_", .), -c(Team, Season))
+
+team_salary_by_type <- team_detail %>% group_by(Team, Season) %>% summarise(Team_Total = sum(`Total Cash`, na.rm = TRUE), .groups = "drop")
 
 combined_ts <- combined_perf %>%
   left_join(playoff_summary, by = c("Team","Season")) %>%
@@ -256,191 +215,64 @@ combined_ts <- combined_perf %>%
   left_join(gm_data,         by = c("Team","Season")) %>%
   left_join(gini_data,       by = c("Team","Season")) %>%
   left_join(team_val_adj,    by = c("Team","Season")) %>%
-  # join in cap‐jump and minimum jump (season only)
   left_join(capjump_data,    by = "Season") %>%
-  left_join(min_jump_data,   by = "Season")
-
-
-```
-
-```{r}
-## 7. Salary‐type shares & injury cash -------------------------------------
-
-# 7.1 Clean up injury_data keys
-injury_data <- injury_data %>%
-  mutate(
-    Team = Team %>%
-      str_replace_all("[^[:print:]]", "") %>%  # drop non-printable
-      str_squish(),                            # collapse & trim spaces
-    Season = as.integer(Season)
-  )
-
-# 7.2 Salary-type shares (wide)
-salary_type_wide <- team_detail %>%
-  group_by(Team, Season, Type) %>%
-  summarise(Total_Spending = sum(`Total Cash`, na.rm=TRUE), .groups="drop") %>%
-  group_by(Team, Season) %>%
-  mutate(Type_Percent = Total_Spending / sum(Total_Spending)) %>%
-  select(Team, Season, Type, Type_Percent) %>%
-  pivot_wider(
-    names_from  = Type,
-    values_from = Type_Percent,
-    values_fill = 0
-  ) %>%
-  rename_with(~ paste0("Pct_", .), -c(Team, Season))
-
-# 7.3 Total cash by team×season
-team_salary_by_type <- team_detail %>%
-  group_by(Team, Season) %>%
-  summarise(Team_Total = sum(`Total Cash`, na.rm=TRUE), .groups="drop")
-
-# 7.4 Merge into combined_ts and compute injury share
-combined_ts <- combined_ts %>%
-  # ensure keys are clean
-  mutate(
-    Team   = str_squish(as.character(Team)),
-    Season = as.integer(Season)
-  ) %>%
+  left_join(min_jump_data,   by = "Season") %>%
   left_join(salary_type_wide,    by = c("Team","Season")) %>%
   left_join(team_salary_by_type, by = c("Team","Season")) %>%
-  left_join(
-    injury_data %>% select(Team, Season, CashSeason_Cumulative),
-    by = c("Team","Season")
-  ) %>%
-  mutate(
-    Injury_Cash_Share = CashSeason_Cumulative / Team_Total
-  )
-# ── 7.4a Top-3 Salary Share & Interaction ────────────────────────────────────
-# 1. Compute each team’s total active payroll
-team_totals_active <- player_detail %>%
-  filter(Type == "Active") %>%
-  group_by(Team, Season) %>%
-  summarise(
-    Team_Total_Active = sum(`Total Cash`, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# 2. Sum the top-3 active salaries per team-season
-top3_pay_active <- player_detail %>%
-  filter(Type == "Active") %>%
-  group_by(Team, Season) %>%
-  arrange(desc(`Total Cash`)) %>%
-  slice_head(n = 3) %>%
-  summarise(
-    top3_pay = sum(`Total Cash`, na.rm = TRUE),
-    .groups  = "drop"
-  )
-
-# 3. Build the star share (top 3 ÷ active payroll)
-star_share <- top3_pay_active %>%
-  left_join(team_totals_active, by = c("Team", "Season")) %>%
-  mutate(
-    top3_pay          = replace_na(top3_pay, 0),
-    Team_Total_Active = replace_na(Team_Total_Active, 0),
-    top3_share        = if_else(Team_Total_Active > 0,
-                                top3_pay / Team_Total_Active,
-                                0)
-  )
-
-# 4. Merge into your panel and compute the interaction
-combined_ts <- combined_ts %>%
-  left_join(
-    star_share %>% select(Team, Season, top3_pay, top3_share),
-    by = c("Team", "Season")
-  ) %>%
-  mutate(
-    top3_pay         = replace_na(top3_pay, 0),
-    top3_share       = replace_na(top3_share, 0)
-  )
-
+  left_join(injury_data %>% select(Team, Season, CashSeason_Cumulative), by = c("Team","Season")) %>%
+  mutate(Injury_Cash_Share = CashSeason_Cumulative / Team_Total)
 ```
 
-```{r}
-## 8. Lagged metrics, correlations & models -------------------------------
+```{r cap-min-jumps}
+## 7. Cap-Jump & Min-Jump Data ---------------------------------------------
 
-lagged <- combined_ts %>%
-  group_by(Team) %>%
-  arrange(Season) %>%
-  mutate(Next_WinPct = lead(Win_Loss_Pct)) %>%
-  ungroup()
+capjump_data <- read_excel(excel_path, sheet = "cap_jump", na = ".", col_types = c("numeric","numeric","numeric")) %>%
+rename(Season = Season, CapMax_USD = `CapMax (USD)`, CapJump_USD = `CapJump (USD)`)
 
-team_correlations <- lagged %>%
-  group_by(Team) %>%
-  summarise(
-    Corr_Composite = cor(Composite_Score, Next_WinPct, use="complete.obs"),
-    Corr_WinPct    = cor(Win_Loss_Pct, Next_WinPct,    use="complete.obs")
-  ) %>%
-  summarise_all(~ mean(.x, na.rm=TRUE))
+min_jump_data <- read_excel(excel_path, sheet = "min_jump", na = ".", col_types = c("numeric","numeric","numeric")) %>%
+rename(Season = Season, VetMin0 = VetMin0, MinJump_Pct = MinJump_Pct)
+```
+
+```{r lagged-models}
+## 8. Lagged Metrics, Correlations & Models -------------------------------
+
+lagged <- combined_ts %>% group_by(Team) %>% arrange(Season) %>% mutate(Next_WinPct = lead(Win_Loss_Pct)) %>% ungroup()
+
+team_correlations <- lagged %>% group_by(Team) %>% summarise(Corr_Composite = cor(Composite_Score, Next_WinPct, use="complete.obs"), Corr_WinPct = cor(Win_Loss_Pct, Next_WinPct, use="complete.obs")) %>% summarise_all(~ mean(.x, na.rm=TRUE))
 
 models <- list(
-  lm(Next_WinPct ~ Win_Loss_Pct,    data=lagged),
-  lm(Next_WinPct ~ Composite_Score, data=lagged),
-  lm(Next_WinPct ~ Win_Loss_Pct + Composite_Score, data=lagged)
+  lm(Next_WinPct ~ Win_Loss_Pct,    data = lagged),
+  lm(Next_WinPct ~ Composite_Score, data = lagged),
+  lm(Next_WinPct ~ Win_Loss_Pct + Composite_Score, data = lagged)
 )
 
 lapply(models, summary)
 lapply(models, AIC)
 lapply(models, BIC)
-
 ```
 
-```{r}
-## 9. Visualizations --------------------------------------------------------
+```{r visualizations}
+## 9. Visualizations -------------------------------------------------------
 
-# 9.1 Gini heatmap
-ggplot(gini_data, aes(factor(Season), fct_rev(Team), fill=Gini)) +
-  geom_tile(color="white", size=0.2) +
-  geom_text(aes(label=ifelse(is.na(Gini),"",round(Gini,2))),
-            color="white", size=3, fontface="bold") +
-  scale_fill_viridis(option="magma", na.value="grey90") +
-  labs(title="NBA Salary Inequality (Gini by Cash Share)",
-       subtitle="2016–2024", fill="Gini") +
+# Gini heatmap
+ggplot(gini_data, aes(factor(Season), fct_rev(Team), fill = Gini)) +
+  geom_tile(color = "white", size = 0.2) +
+  geom_text(aes(label = ifelse(is.na(Gini), "", round(Gini, 2))), color = "white", size = 3, fontface = "bold") +
+  scale_fill_viridis(option = "magma", na.value = "grey90") +
+  labs(title = "NBA Salary Inequality (Gini by Cash Share)", subtitle = "2016–2024", fill = "Gini") +
   theme_minimal() +
-  theme(axis.text.x=element_text(angle=45,hjust=1))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-# 9.2 Composite vs current & next Win %
-p1 <- ggplot(combined_perf, aes(Composite_Score, Win_Loss_Pct)) +
-  geom_point(alpha=0.6) +
-  geom_smooth(method="loess", se=FALSE) +
-  labs(title="Composite vs. Win %") +
-  theme_minimal()
+# Composite vs current & next Win%
+ p1 <- ggplot(combined_perf, aes(Composite_Score, Win_Loss_Pct)) + geom_point(alpha = 0.6) + geom_smooth(method = "loess", se = FALSE) + labs(title = "Composite vs. Win %") + theme_minimal()
+ p2 <- ggplot(lagged,         aes(Composite_Score, Next_WinPct))   + geom_point(alpha = 0.6) + geom_smooth(method = "lm",    se = FALSE) + labs(title = "Composite vs. Next Season Win %") + theme_minimal()
+ p3 <- ggplot(lagged,         aes(Win_Loss_Pct,   Next_WinPct))   + geom_point(alpha = 0.6) + geom_smooth(method = "lm",    se = FALSE) + labs(title = "Win % vs. Next Season Win %") + theme_minimal()
 
-p2 <- ggplot(lagged, aes(Composite_Score, Next_WinPct)) +
-  geom_point(alpha=0.6) +
-  geom_smooth(method="lm", se=FALSE) +
-  labs(title="Composite vs. Next Season Win %") +
-  theme_minimal()
-
-p3 <- ggplot(lagged, aes(Win_Loss_Pct, Next_WinPct)) +
-  geom_point(alpha=0.6) +
-  geom_smooth(method="lm", se=FALSE) +
-  labs(title="Win % vs. Next Season Win %") +
-  theme_minimal()
-
-grid.arrange(p1, p2, p3, ncol=1)
-
+gridExtra::grid.arrange(p1, p2, p3, ncol = 1)
 ```
 
-```{r}
-
-
-combined_ts <- combined_ts %>% 
-  mutate(across(
-    where(is.character), 
-    ~ replace(.x, is.na(.x) | .x == "", ".")
-  ))
-
-
-combined_ts <- combined_ts %>%
-  mutate(across(
-    everything(),
-    ~ ifelse(is.na(.x), ".", .x)
-  ))
-
-```
-
-```{r}
-## 10. Export all sheets to Excel ------------------------------------------
+```{r export}
+## 10. Export all sheets to Excel -----------------------------------------
 
 data_list <- list(
   player_detail, team_detail, team_val_adj, injury_data,
@@ -453,11 +285,11 @@ names(data_list) <- c(
   "lagged_data","team_correlations","gini_data","salary_shares","combined_ts"
 )
 
+output_path <- here("data", "processed", "nba-data-processed.xlsx")
 wb <- createWorkbook()
 for(nm in names(data_list)) {
   addWorksheet(wb, nm)
   writeData(wb, nm, data_list[[nm]])
 }
-saveWorkbook(wb, "NBA_Data_Processed.xlsx", overwrite=TRUE)
-
+saveWorkbook(wb, output_path, overwrite = TRUE)
 ```
