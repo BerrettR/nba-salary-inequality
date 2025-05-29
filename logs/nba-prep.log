@@ -1,0 +1,1694 @@
+-----------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\rwb16854\Desktop\NBA_prep.log
+  log type:  text
+ opened on:  30 Apr 2025, 17:16:35
+
+. 
+. * 1. Import & clean
+. import excel "C:\Users\rwb16854\Downloads\NBA_Data_Processed.xlsx", sheet("combined_ts") firstrow clear
+(34 vars, 240 obs)
+
+. ds, has(type string)
+Team          TOTAL_PLAY~S  Furthest_R~d  Furthest_~ns  Furthest_~es  GM_Name       GM_LastYear   GM_Turnover
+
+. foreach v of varlist _all { 
+  2.   capture destring `v', replace ignore(".") 
+  3. }
+
+. compress
+  (0 bytes saved)
+
+. encode Team, gen(team_id)
+
+. encode Furthest_RoundReached, gen(round_id)
+
+. encode GM_Name, gen(gm_id)
+
+. encode GM_LastYear, gen(prev_gm_id)
+
+. 
+. * 2. Declare panel & create derived vars
+. tsset team_id Season
+       panel variable:  team_id (strongly balanced)
+        time variable:  Season, 2016 to 2023
+                delta:  1 unit
+
+. gen Gini2 = Gini^2
+
+. gen Active_Gini2 = Active_Gini^2
+
+. 
+. gen ln_Team_Total = ln(Team_Total)
+
+. gen ln_Team_Val = ln(Valuation_B_adj)
+
+. gen Pct_Inactive = Pct_Dead + Pct_Retained + Pct_CapHold + Pct_ReserveSuspended
+
+. gen ln_CapMax_USD = ln(CapMax_USD)
+
+. 
+. * 3. Build lags on full panel
+. by team_id (Season), sort: gen L_Gini        = L.Gini
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Gini2       = L.Gini2
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Active_Gini = L.Active_Gini
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L2_Active_Gini = L2.Active_Gini
+(60 missing values generated)
+
+. by team_id (Season), sort: gen L_GM_Turnover = L.GM_Turnover
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L2_GM_Turnover = L2.GM_Turnover
+(60 missing values generated)
+
+. by team_id (Season), sort: gen L_Pays_LuxTax = L.Pays_LuxTax
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Pct_Active  = L.Pct_Active
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Pct_Inactive  = L.Pct_Inactive
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Pct_ln_Team_Val  = L.ln_Team_Val
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Pct_ln_Team_Total  = L.ln_Team_Total
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Pct_Dead  = L.Pct_Dead
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Injury_Cash_Share  = L.Injury_Cash_Share
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_ln_CapMax_USD  = L.ln_CapMax_USD
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_MinJump_Pct  = L.MinJump_Pct
+(30 missing values generated)
+
+. by team_id (Season), sort: gen L_Win_Loss_Pct  = L.Win_Loss_Pct
+(30 missing values generated)
+
+. 
+. * 4. Trim to estimation seasons
+. keep if inlist(Season,2017,2018,2019,2020,2021,2022,2023)
+(30 observations deleted)
+
+. tsset team_id Season
+       panel variable:  team_id (strongly balanced)
+        time variable:  Season, 2017 to 2023
+                delta:  1 unit
+
+. 
+. * 5. Center Gini
+. summarize Gini
+
+    Variable |        Obs        Mean    Std. Dev.       Min        Max
+-------------+---------------------------------------------------------
+        Gini |        210    .6099953    .0783719   .3038211   .7770046
+
+. 
+. gen cGini = Gini - r(mean)
+
+. gen cGini2 = cGini^2
+
+. 
+. sum Active_Gini
+
+    Variable |        Obs        Mean    Std. Dev.       Min        Max
+-------------+---------------------------------------------------------
+ Active_Gini |        210    .5462285    .0739512   .3038211   .7440882
+
+. gen cActive_Gini = Active_Gini - r(mean)
+
+. gen cActive_Gini2 = cActive_Gini^2
+
+. 
+. 
+. * 6. Save prepared data (optional)
+. save "NBA_prepared.dta", replace
+file NBA_prepared.dta saved
+
+. 
+. * --- Now your OLS and IV blocks follow exactly as you wrote ---
+. 
+. // OLS + Theory-Driven Controls ACTIVE GINI (Only Active Salary Types)
+. * Baseline model
+. regress Composite_Score Active_Gini, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(1, 208)         =       9.68
+                                                Prob > F          =     0.0021
+                                                R-squared         =     0.0449
+                                                Root MSE          =      .1869
+
+------------------------------------------------------------------------------
+             |               Robust
+Composite_~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+ Active_Gini |   .5466384   .1757376     3.11   0.002     .2001832    .8930936
+       _cons |  -.0260505   .0950087    -0.27   0.784     -.213354     .161253
+------------------------------------------------------------------------------
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   55.23073       2  -106.4615  -99.76724
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo base
+
+. 
+. * Block 1: Resource capacity
+. regress Composite_Score Gini ln_Team_Total, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(2, 207)         =      15.07
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.1060
+                                                Root MSE          =     .18126
+
+-------------------------------------------------------------------------------
+              |               Robust
+Composite_S~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+--------------+----------------------------------------------------------------
+         Gini |   .1737334   .1607715     1.08   0.281    -.1432261    .4906929
+ln_Team_Total |   .3292148    .064376     5.11   0.000     .2022982    .4561314
+        _cons |  -5.986583    1.18911    -5.03   0.000    -8.330903   -3.642263
+-------------------------------------------------------------------------------
+
+. testparm ln_Team_Total
+
+ ( 1)  ln_Team_Total = 0
+
+       F(  1,   207) =   26.15
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+        Gini |      1.03    0.971895
+ln_Team_To~l |      1.03    0.971895
+-------------+----------------------
+    Mean VIF |      1.03
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   62.17338       3  -118.3468  -108.3054
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block1
+
+. 
+. * Block 2: Roster composition
+. regress Composite_Score Gini ln_Team_Total Pct_Inactive, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(3, 206)         =      42.71
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.3019
+                                                Root MSE          =     .16057
+
+-------------------------------------------------------------------------------
+              |               Robust
+Composite_S~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+--------------+----------------------------------------------------------------
+         Gini |   .0375902   .1459145     0.26   0.797     -.250087    .3252674
+ln_Team_Total |   .2192444   .0616345     3.56   0.000     .0977291    .3407597
+ Pct_Inactive |  -.6352922      .0687    -9.25   0.000    -.7707374    -.499847
+        _cons |  -3.752467   1.143464    -3.28   0.001    -6.006859   -1.498075
+-------------------------------------------------------------------------------
+
+. testparm Pct_Inactive
+
+ ( 1)  Pct_Inactive = 0
+
+       F(  1,   206) =   85.51
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ln_Team_To~l |      1.08    0.924010
+Pct_Inactive |      1.08    0.926720
+        Gini |      1.04    0.957041
+-------------+----------------------
+    Mean VIF |      1.07
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   88.13691       4  -168.2738  -154.8854
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block2
+
+. 
+. * Block 3: Injury slack
+. regress Composite_Score Gini ln_Team_Total Pct_Inactive Injury_Cash_Share, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(4, 205)         =      57.75
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4537
+                                                Root MSE          =     .14238
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+             Gini |   .3941441   .1325348     2.97   0.003     .1328379    .6554502
+    ln_Team_Total |   .2387567    .056936     4.19   0.000     .1265014     .351012
+     Pct_Inactive |  -.5697878   .0628738    -9.06   0.000    -.6937501   -.4458256
+Injury_Cash_Share |  -.8380717   .1009864    -8.30   0.000    -1.037177   -.6389667
+            _cons |  -4.180762   1.058538    -3.95   0.000    -6.267779   -2.093744
+-----------------------------------------------------------------------------------
+
+. testparm Injury_Cash_Share
+
+ ( 1)  Injury_Cash_Share = 0
+
+       F(  1,   205) =   68.87
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+        Gini |      1.19    0.843068
+Injury_Cas~e |      1.15    0.871989
+Pct_Inactive |      1.09    0.914186
+ln_Team_To~l |      1.08    0.922166
+-------------+----------------------
+    Mean VIF |      1.13
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   113.8926       5  -217.7852  -201.0497
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block3
+
+. 
+. * Block 4: Market power
+. regress Composite_Score Gini ln_Team_Total Pct_Inactive Injury_Cash_Share Pays_LuxTax, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(5, 204)         =      47.53
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4627
+                                                Root MSE          =     .14155
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+             Gini |   .3450586   .1393905     2.48   0.014     .0702279    .6198893
+    ln_Team_Total |   .1745353   .0652024     2.68   0.008     .0459783    .3030923
+     Pct_Inactive |  -.5589999   .0613764    -9.11   0.000    -.6800134   -.4379864
+Injury_Cash_Share |   -.810464   .1016741    -7.97   0.000    -1.010931   -.6099971
+      Pays_LuxTax |    .054561   .0283322     1.93   0.056    -.0013006    .1104225
+            _cons |  -2.968949   1.218017    -2.44   0.016    -5.370466   -.5674315
+-----------------------------------------------------------------------------------
+
+. testparm Pays_LuxTax
+
+ ( 1)  Pays_LuxTax = 0
+
+       F(  1,   204) =    3.71
+            Prob > F =    0.0555
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ Pays_LuxTax |      1.51    0.662266
+ln_Team_To~l |      1.48    0.675887
+        Gini |      1.23    0.812182
+Injury_Cas~e |      1.17    0.856332
+Pct_Inactive |      1.10    0.908570
+-------------+----------------------
+    Mean VIF |      1.30
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   115.6395       6   -219.279  -199.1964
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block4
+
+. 
+. * Block 5: Market valuation
+. regress Composite_Score Gini ln_Team_Total Pct_Inactive Injury_Cash_Share Pays_LuxTax L.ln_Team_Val, vce(robust)
+
+Linear regression                               Number of obs     =        180
+                                                F(6, 173)         =      36.86
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4731
+                                                Root MSE          =     .14086
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+             Gini |   .3394453   .1445673     2.35   0.020     .0541026    .6247881
+    ln_Team_Total |   .1212712   .0730427     1.66   0.099    -.0228983    .2654407
+     Pct_Inactive |  -.5282427   .0632762    -8.35   0.000    -.6531354     -.40335
+Injury_Cash_Share |  -.8318899   .1058555    -7.86   0.000    -1.040824   -.6229553
+      Pays_LuxTax |   .0750423   .0295403     2.54   0.012     .0167365     .133348
+                  |
+      ln_Team_Val |
+              L1. |  -.0019888   .0271638    -0.07   0.942    -.0556039    .0516264
+                  |
+            _cons |  -1.971929   1.355075    -1.46   0.147    -4.646536    .7026787
+-----------------------------------------------------------------------------------
+
+. testparm L.ln_Team_Val
+
+ ( 1)  L.ln_Team_Val = 0
+
+       F(  1,   173) =    0.01
+            Prob > F =    0.9417
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ln_Team_To~l |      1.79    0.559052
+ Pays_LuxTax |      1.53    0.653430
+ ln_Team_Val |
+         L1. |      1.30    0.766523
+        Gini |      1.28    0.783175
+Injury_Cas~e |      1.20    0.835540
+Pct_Inactive |      1.13    0.888018
+-------------+----------------------
+    Mean VIF |      1.37
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        180   43.28107   100.9544       7  -187.9088  -165.5581
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. ovtest
+
+Ramsey RESET test using powers of the fitted values of Composite_Score
+       Ho:  model has no omitted variables
+                 F(3, 170) =      0.37
+                  Prob > F =      0.7712
+
+. eststo block5
+
+. 
+. * Export all results
+. esttab base block1 block2 block3 block4 block5 using ols_controls.rtf, replace se stats(r2_a bic) label
+(output written to ols_controls.rtf)
+
+. 
+. 
+. /////////////////////////////////////////////////////////////////////////////
+> // OLS + Theory-Driven Controls ACTIVE GINI (Only Active Salary Types)
+. * Baseline model
+. regress Composite_Score Active_Gini, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(1, 208)         =       9.68
+                                                Prob > F          =     0.0021
+                                                R-squared         =     0.0449
+                                                Root MSE          =      .1869
+
+------------------------------------------------------------------------------
+             |               Robust
+Composite_~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+ Active_Gini |   .5466384   .1757376     3.11   0.002     .2001832    .8930936
+       _cons |  -.0260505   .0950087    -0.27   0.784     -.213354     .161253
+------------------------------------------------------------------------------
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   55.23073       2  -106.4615  -99.76724
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo base
+
+. 
+. * Block 1: Resource capacity
+. regress Composite_Score Active_Gini ln_Team_Total, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(2, 207)         =      17.08
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.1170
+                                                Root MSE          =     .18015
+
+-------------------------------------------------------------------------------
+              |               Robust
+Composite_S~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+--------------+----------------------------------------------------------------
+  Active_Gini |   .3397562   .1718155     1.98   0.049     .0010235    .6784889
+ln_Team_Total |   .3015322    .067244     4.48   0.000     .1689614     .434103
+        _cons |  -5.548793   1.226761    -4.52   0.000    -7.967341   -3.130246
+-------------------------------------------------------------------------------
+
+. testparm ln_Team_Total
+
+ ( 1)  ln_Team_Total = 0
+
+       F(  1,   207) =   20.11
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ Active_Gini |      1.09    0.918098
+ln_Team_To~l |      1.09    0.918098
+-------------+----------------------
+    Mean VIF |      1.09
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   63.47007       3  -120.9401  -110.8988
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block1
+
+. 
+. * Block 2: Roster composition
+. regress Composite_Score Active_Gini ln_Team_Total Pct_Inactive, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(3, 206)         =      42.49
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.3018
+                                                Root MSE          =     .16058
+
+-------------------------------------------------------------------------------
+              |               Robust
+Composite_S~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+--------------+----------------------------------------------------------------
+  Active_Gini |   .0331855   .1492324     0.22   0.824    -.2610331    .3274042
+ln_Team_Total |   .2184116   .0625626     3.49   0.001     .0950665    .3417567
+ Pct_Inactive |  -.6334777    .071843    -8.82   0.000    -.7751195   -.4918359
+        _cons |  -3.732372   1.154874    -3.23   0.001     -6.00926   -1.455483
+-------------------------------------------------------------------------------
+
+. testparm Pct_Inactive
+
+ ( 1)  Pct_Inactive = 0
+
+       F(  1,   206) =   77.75
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ Active_Gini |      1.17    0.857912
+Pct_Inactive |      1.14    0.879409
+ln_Team_To~l |      1.12    0.891668
+-------------+----------------------
+    Mean VIF |      1.14
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   88.12394       4  -168.2479  -154.8594
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block2
+
+. 
+. * Block 3: Injury slack
+. regress Composite_Score Active_Gini ln_Team_Total Pct_Inactive Injury_Cash_Share, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(4, 205)         =      57.27
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4399
+                                                Root MSE          =     .14418
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+      Active_Gini |   .2590147   .1330317     1.95   0.053     -.003271    .5213005
+    ln_Team_Total |    .234914   .0577856     4.07   0.000     .1209838    .3488443
+     Pct_Inactive |  -.5661736   .0631961    -8.96   0.000    -.6907713   -.4415759
+Injury_Cash_Share |  -.7677523    .096118    -7.99   0.000     -.957259   -.5782457
+            _cons |   -4.02428   1.069649    -3.76   0.000    -6.133204   -1.915355
+-----------------------------------------------------------------------------------
+
+. testparm Injury_Cash_Share
+
+ ( 1)  Injury_Cash_Share = 0
+
+       F(  1,   205) =   63.80
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ Active_Gini |      1.22    0.818933
+Pct_Inactive |      1.15    0.866324
+ln_Team_To~l |      1.12    0.890316
+Injury_Cas~e |      1.06    0.944898
+-------------+----------------------
+    Mean VIF |      1.14
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   111.2646       5  -212.5292  -195.7936
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block3
+
+. 
+. * Block 4: Market power
+. regress Composite_Score Active_Gini ln_Team_Total Pct_Inactive Injury_Cash_Share Pays_LuxTax, vce(robust)
+
+Linear regression                               Number of obs     =        210
+                                                F(5, 204)         =      47.67
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4502
+                                                Root MSE          =      .1432
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+      Active_Gini |   .1808135   .1419057     1.27   0.204    -.0989764    .4606035
+    ln_Team_Total |   .1693856   .0649132     2.61   0.010     .0413988    .2973724
+     Pct_Inactive |  -.5611079   .0627572    -8.94   0.000    -.6848439   -.4373719
+Injury_Cash_Share |  -.7406074   .0975935    -7.59   0.000    -.9330288   -.5481861
+      Pays_LuxTax |   .0592734   .0293855     2.02   0.045     .0013352    .1172116
+            _cons |  -2.775301   1.212009    -2.29   0.023    -5.164972   -.3856301
+-----------------------------------------------------------------------------------
+
+. testparm Pays_LuxTax
+
+ ( 1)  Pays_LuxTax = 0
+
+       F(  1,   204) =    4.07
+            Prob > F =    0.0450
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ Pays_LuxTax |      1.56    0.640607
+ln_Team_To~l |      1.48    0.674059
+ Active_Gini |      1.31    0.763130
+Pct_Inactive |      1.16    0.865345
+Injury_Cas~e |      1.08    0.929306
+-------------+----------------------
+    Mean VIF |      1.32
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        210   50.40779   113.2114       6  -214.4228  -194.3401
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. eststo block4
+
+. 
+. * Block 5: Market valuation
+. regress Composite_Score Active_Gini ln_Team_Total Pct_Inactive Injury_Cash_Share Pays_LuxTax L.ln_Team_Val, vce(robus
+> t)
+
+Linear regression                               Number of obs     =        180
+                                                F(6, 173)         =      36.46
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4598
+                                                Root MSE          =     .14264
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+      Active_Gini |    .149296   .1489501     1.00   0.318    -.1446975    .4432895
+    ln_Team_Total |    .121905   .0741713     1.64   0.102    -.0244922    .2683022
+     Pct_Inactive |  -.5321142   .0646947    -8.23   0.000    -.6598068   -.4044216
+Injury_Cash_Share |  -.7560712   .1034065    -7.31   0.000     -.960172   -.5519704
+      Pays_LuxTax |   .0804785   .0308385     2.61   0.010     .0196104    .1413466
+                  |
+      ln_Team_Val |
+              L1. |   .0003067   .0286294     0.01   0.991    -.0562012    .0568145
+                  |
+            _cons |  -1.876345   1.377662    -1.36   0.175    -4.595535    .8428455
+-----------------------------------------------------------------------------------
+
+. testparm L.ln_Team_Val
+
+ ( 1)  L.ln_Team_Val = 0
+
+       F(  1,   173) =    0.00
+            Prob > F =    0.9915
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ln_Team_To~l |      1.80    0.554967
+ Pays_LuxTax |      1.59    0.630541
+ Active_Gini |      1.35    0.742735
+ ln_Team_Val |
+         L1. |      1.31    0.765567
+Pct_Inactive |      1.18    0.850127
+Injury_Cas~e |      1.10    0.908871
+-------------+----------------------
+    Mean VIF |      1.39
+
+. estat ic
+
+Akaike's information criterion and Bayesian information criterion
+
+-----------------------------------------------------------------------------
+       Model |          N   ll(null)  ll(model)      df        AIC        BIC
+-------------+---------------------------------------------------------------
+           . |        180   43.28107   98.69793       7  -183.3959  -161.0452
+-----------------------------------------------------------------------------
+Note: BIC uses N = number of observations. See [R] BIC note.
+
+. ovtest
+
+Ramsey RESET test using powers of the fitted values of Composite_Score
+       Ho:  model has no omitted variables
+                 F(3, 170) =      0.29
+                  Prob > F =      0.8331
+
+. eststo block5
+
+. 
+. * Export all results
+. esttab base block1 block2 block3 block4 block5 using ols_controls.rtf, replace se stats(r2_a bic) label
+(output written to ols_controls.rtf)
+
+. 
+. 
+. 
+. 
+. /////////////////////////////////////////////////////////////////////////////
+> // FE-IV Quadratic Gini → Composite Score (ACTIVE GINI)
+. 
+. 
+.  * Run the IV regression with both cGini and cGini squared
+. ivreg2 Composite_Score Pct_Inactive Injury_Cash_Share Pays_LuxTax ///
+>   (cActive_Gini = L.ln_CapMax_USD L.MinJump_Pct L.Pays_LuxTax), ///
+>   cluster(team_id) first
+
+First-stage regressions
+-----------------------
+
+
+First-stage regression of cActive_Gini:
+
+Statistics robust to heteroskedasticity and clustering on team_id
+Number of obs =                    180
+Number of clusters (team_id) =      30
+-----------------------------------------------------------------------------------
+                  |               Robust
+     cActive_Gini |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+    ln_CapMax_USD |
+              L1. |  -.1920293   .0759132    -2.53   0.012    -.3418647   -.0421939
+                  |
+      MinJump_Pct |
+              L1. |  -.0130842   .0354248    -0.37   0.712    -.0830047    .0568364
+                  |
+      Pays_LuxTax |
+              L1. |   .0333447   .0106058     3.14   0.002     .0124112    .0542781
+                  |
+     Pct_Inactive |  -.1301837   .0276863    -4.70   0.000    -.1848302   -.0755372
+Injury_Cash_Share |   .1788176   .0653023     2.74   0.007     .0499258    .3077094
+      Pays_LuxTax |   .0469991   .0109574     4.29   0.000     .0253716    .0686265
+            _cons |   3.521515   1.408833     2.50   0.013     .7408014    6.302228
+-----------------------------------------------------------------------------------
+F test of excluded instruments:
+  F(  3,    29) =     5.20
+  Prob > F      =   0.0054
+Sanderson-Windmeijer multivariate F test of excluded instruments:
+  F(  3,    29) =     5.20
+  Prob > F      =   0.0054
+
+
+
+Summary results for first-stage regressions
+-------------------------------------------
+
+                                           (Underid)            (Weak id)
+Variable     | F(  3,    29)  P-val | SW Chi-sq(  3) P-val | SW F(  3,    29)
+cActive_Gini |       5.20    0.0054 |       16.69   0.0008 |        5.20
+
+NB: first-stage test statistics cluster-robust
+
+Stock-Yogo weak ID F test critical values for single endogenous regressor:
+                                    5% maximal IV relative bias    13.91
+                                   10% maximal IV relative bias     9.08
+                                   20% maximal IV relative bias     6.46
+                                   30% maximal IV relative bias     5.39
+                                   10% maximal IV size             22.30
+                                   15% maximal IV size             12.83
+                                   20% maximal IV size              9.54
+                                   25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for i.i.d. errors only.
+
+Underidentification test
+Ho: matrix of reduced form coefficients has rank=K1-1 (underidentified)
+Ha: matrix has rank=K1 (identified)
+Kleibergen-Paap rk LM statistic          Chi-sq(3)=11.05    P-val=0.0114
+
+Weak identification test
+Ho: equation is weakly identified
+Cragg-Donald Wald F statistic                                       3.81
+Kleibergen-Paap Wald rk F statistic                                 5.20
+
+Stock-Yogo weak ID test critical values for K1=1 and L1=3:
+                                    5% maximal IV relative bias    13.91
+                                   10% maximal IV relative bias     9.08
+                                   20% maximal IV relative bias     6.46
+                                   30% maximal IV relative bias     5.39
+                                   10% maximal IV size             22.30
+                                   15% maximal IV size             12.83
+                                   20% maximal IV size              9.54
+                                   25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+
+Weak-instrument-robust inference
+Tests of joint significance of endogenous regressors B1 in main equation
+Ho: B1=0 and orthogonality conditions are valid
+Anderson-Rubin Wald test           F(3,29)=        0.07     P-val=0.9743
+Anderson-Rubin Wald test           Chi-sq(3)=      0.23     P-val=0.9722
+Stock-Wright LM S statistic        Chi-sq(3)=      0.31     P-val=0.9589
+
+NB: Underidentification, weak identification and weak-identification-robust
+    test statistics cluster-robust
+
+Number of clusters             N_clust  =         30
+Number of observations               N  =        180
+Number of regressors                 K  =          5
+Number of endogenous regressors      K1 =          1
+Number of instruments                L  =          7
+Number of excluded instruments       L1 =          3
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on team_id
+
+Number of clusters (team_id) =      30                Number of obs =      180
+                                                      F(  4,    29) =    47.37
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  6.515467648                Centered R2   =   0.4431
+Total (uncentered) SS   =  19.81659153                Uncentered R2 =   0.8169
+Residual SS             =  3.628770186                Root MSE      =     .142
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+     cActive_Gini |  -.1049218   .7690763    -0.14   0.891    -1.612284     1.40244
+     Pct_Inactive |  -.5905408   .0982575    -6.01   0.000     -.783122   -.3979595
+Injury_Cash_Share |  -.6925725   .1618273    -4.28   0.000    -1.009748   -.3753968
+      Pays_LuxTax |   .1215798   .0500179     2.43   0.015     .0235464    .2196131
+            _cons |   .4742432    .041942    11.31   0.000     .3920383     .556448
+-----------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             11.055
+                                                   Chi-sq(3) P-val =    0.0114
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):                3.811
+                         (Kleibergen-Paap rk Wald F statistic):          5.196
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         0.201
+                                                   Chi-sq(2) P-val =    0.9045
+------------------------------------------------------------------------------
+Instrumented:         cActive_Gini
+Included instruments: Pct_Inactive Injury_Cash_Share Pays_LuxTax
+Excluded instruments: L.ln_CapMax_USD L.MinJump_Pct L.Pays_LuxTax
+------------------------------------------------------------------------------
+
+. 
+.   * Run the IV regression with both cGini and cGini squared
+. ivreg2 Composite_Score Pct_Inactive Injury_Cash_Share ///
+>   (cActive_Gini = L.ln_CapMax_USD L.MinJump_Pct L.Pays_LuxTax L.GM_Turnover), ///
+>   cluster(team_id) first
+
+First-stage regressions
+-----------------------
+
+
+First-stage regression of cActive_Gini:
+
+Statistics robust to heteroskedasticity and clustering on team_id
+Number of obs =                    180
+Number of clusters (team_id) =      30
+-----------------------------------------------------------------------------------
+                  |               Robust
+     cActive_Gini |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+    ln_CapMax_USD |
+              L1. |  -.1817581   .0742557    -2.45   0.015    -.3283219   -.0351942
+                  |
+      MinJump_Pct |
+              L1. |  -.0153339   .0368443    -0.42   0.678    -.0880561    .0573882
+                  |
+      Pays_LuxTax |
+              L1. |   .0575905     .01197     4.81   0.000     .0339645    .0812164
+                  |
+      GM_Turnover |
+              L1. |   .0109118   .0106616     1.02   0.308    -.0101318    .0319554
+                  |
+     Pct_Inactive |  -.1517365    .029059    -5.22   0.000    -.2090923   -.0943807
+Injury_Cash_Share |   .1696287   .0711977     2.38   0.018     .0291008    .3101566
+            _cons |   3.340731   1.377152     2.43   0.016      .622549    6.058914
+-----------------------------------------------------------------------------------
+F test of excluded instruments:
+  F(  4,    29) =     7.49
+  Prob > F      =   0.0003
+Sanderson-Windmeijer multivariate F test of excluded instruments:
+  F(  4,    29) =     7.49
+  Prob > F      =   0.0003
+
+
+
+Summary results for first-stage regressions
+-------------------------------------------
+
+                                           (Underid)            (Weak id)
+Variable     | F(  4,    29)  P-val | SW Chi-sq(  4) P-val | SW F(  4,    29)
+cActive_Gini |       7.49    0.0003 |       32.07   0.0000 |        7.49
+
+NB: first-stage test statistics cluster-robust
+
+Stock-Yogo weak ID F test critical values for single endogenous regressor:
+                                    5% maximal IV relative bias    16.85
+                                   10% maximal IV relative bias    10.27
+                                   20% maximal IV relative bias     6.71
+                                   30% maximal IV relative bias     5.34
+                                   10% maximal IV size             24.58
+                                   15% maximal IV size             13.96
+                                   20% maximal IV size             10.26
+                                   25% maximal IV size              8.31
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for i.i.d. errors only.
+
+Underidentification test
+Ho: matrix of reduced form coefficients has rank=K1-1 (underidentified)
+Ha: matrix has rank=K1 (identified)
+Kleibergen-Paap rk LM statistic          Chi-sq(4)=16.37    P-val=0.0026
+
+Weak identification test
+Ho: equation is weakly identified
+Cragg-Donald Wald F statistic                                       5.98
+Kleibergen-Paap Wald rk F statistic                                 7.49
+
+Stock-Yogo weak ID test critical values for K1=1 and L1=4:
+                                    5% maximal IV relative bias    16.85
+                                   10% maximal IV relative bias    10.27
+                                   20% maximal IV relative bias     6.71
+                                   30% maximal IV relative bias     5.34
+                                   10% maximal IV size             24.58
+                                   15% maximal IV size             13.96
+                                   20% maximal IV size             10.26
+                                   25% maximal IV size              8.31
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+
+Weak-instrument-robust inference
+Tests of joint significance of endogenous regressors B1 in main equation
+Ho: B1=0 and orthogonality conditions are valid
+Anderson-Rubin Wald test           F(4,29)=        1.81     P-val=0.1533
+Anderson-Rubin Wald test           Chi-sq(4)=      7.76     P-val=0.1007
+Stock-Wright LM S statistic        Chi-sq(4)=      6.76     P-val=0.1488
+
+NB: Underidentification, weak identification and weak-identification-robust
+    test statistics cluster-robust
+
+Number of clusters             N_clust  =         30
+Number of observations               N  =        180
+Number of regressors                 K  =          4
+Number of endogenous regressors      K1 =          1
+Number of instruments                L  =          7
+Number of excluded instruments       L1 =          4
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on team_id
+
+Number of clusters (team_id) =      30                Number of obs =      180
+                                                      F(  3,    29) =    46.35
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  6.515467648                Centered R2   =   0.3995
+Total (uncentered) SS   =  19.81659153                Uncentered R2 =   0.8026
+Residual SS             =  3.912422571                Root MSE      =    .1474
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+     cActive_Gini |   .6345227     .46877     1.35   0.176    -.2842498    1.553295
+     Pct_Inactive |  -.5484017    .071585    -7.66   0.000    -.6887056   -.4080977
+Injury_Cash_Share |  -.8329861   .1309013    -6.36   0.000    -1.089548   -.5764244
+            _cons |   .5236944   .0350858    14.93   0.000     .4549275    .5924613
+-----------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             16.369
+                                                   Chi-sq(4) P-val =    0.0026
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):                5.976
+                         (Kleibergen-Paap rk Wald F statistic):          7.491
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    16.85
+                                         10% maximal IV relative bias    10.27
+                                         20% maximal IV relative bias     6.71
+                                         30% maximal IV relative bias     5.34
+                                         10% maximal IV size             24.58
+                                         15% maximal IV size             13.96
+                                         20% maximal IV size             10.26
+                                         25% maximal IV size              8.31
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         2.451
+                                                   Chi-sq(3) P-val =    0.4842
+------------------------------------------------------------------------------
+Instrumented:         cActive_Gini
+Included instruments: Pct_Inactive Injury_Cash_Share
+Excluded instruments: L.ln_CapMax_USD L.MinJump_Pct L.Pays_LuxTax L.GM_Turnover
+------------------------------------------------------------------------------
+
+.   
+.     * Run the IV regression with both cGini and cGini squared
+. ivreg2 Composite_Score Pct_Inactive Injury_Cash_Share ///
+>   (cActive_Gini = L.ln_CapMax_USD L.MinJump_Pct L.GM_Turnover L2.Active_Gini), ///
+>   cluster(team_id) first
+
+First-stage regressions
+-----------------------
+
+
+First-stage regression of cActive_Gini:
+
+Statistics robust to heteroskedasticity and clustering on team_id
+Number of obs =                    150
+Number of clusters (team_id) =      30
+-----------------------------------------------------------------------------------
+                  |               Robust
+     cActive_Gini |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+    ln_CapMax_USD |
+              L1. |  -.1854529   .1241247    -1.49   0.137    -.4308092    .0599035
+                  |
+      MinJump_Pct |
+              L1. |   .1216113   .1784886     0.68   0.497    -.2312058    .4744283
+                  |
+      GM_Turnover |
+              L1. |   .0216873    .013028     1.66   0.098    -.0040651    .0474397
+                  |
+      Active_Gini |
+              L2. |   .2830828   .0804205     3.52   0.001     .1241162    .4420494
+                  |
+     Pct_Inactive |  -.1865013   .0397991    -4.69   0.000    -.2651719   -.1078307
+Injury_Cash_Share |   .1710729   .0681345     2.51   0.013     .0363921    .3057538
+            _cons |   3.263238   2.297377     1.42   0.158     -1.27797    7.804446
+-----------------------------------------------------------------------------------
+F test of excluded instruments:
+  F(  4,    29) =     4.62
+  Prob > F      =   0.0052
+Sanderson-Windmeijer multivariate F test of excluded instruments:
+  F(  4,    29) =     4.62
+  Prob > F      =   0.0052
+
+
+
+Summary results for first-stage regressions
+-------------------------------------------
+
+                                           (Underid)            (Weak id)
+Variable     | F(  4,    29)  P-val | SW Chi-sq(  4) P-val | SW F(  4,    29)
+cActive_Gini |       4.62    0.0052 |       19.92   0.0005 |        4.62
+
+NB: first-stage test statistics cluster-robust
+
+Stock-Yogo weak ID F test critical values for single endogenous regressor:
+                                    5% maximal IV relative bias    16.85
+                                   10% maximal IV relative bias    10.27
+                                   20% maximal IV relative bias     6.71
+                                   30% maximal IV relative bias     5.34
+                                   10% maximal IV size             24.58
+                                   15% maximal IV size             13.96
+                                   20% maximal IV size             10.26
+                                   25% maximal IV size              8.31
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for i.i.d. errors only.
+
+Underidentification test
+Ho: matrix of reduced form coefficients has rank=K1-1 (underidentified)
+Ha: matrix has rank=K1 (identified)
+Kleibergen-Paap rk LM statistic          Chi-sq(4)=12.52    P-val=0.0139
+
+Weak identification test
+Ho: equation is weakly identified
+Cragg-Donald Wald F statistic                                       4.43
+Kleibergen-Paap Wald rk F statistic                                 4.62
+
+Stock-Yogo weak ID test critical values for K1=1 and L1=4:
+                                    5% maximal IV relative bias    16.85
+                                   10% maximal IV relative bias    10.27
+                                   20% maximal IV relative bias     6.71
+                                   30% maximal IV relative bias     5.34
+                                   10% maximal IV size             24.58
+                                   15% maximal IV size             13.96
+                                   20% maximal IV size             10.26
+                                   25% maximal IV size              8.31
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+
+Weak-instrument-robust inference
+Tests of joint significance of endogenous regressors B1 in main equation
+Ho: B1=0 and orthogonality conditions are valid
+Anderson-Rubin Wald test           F(4,29)=        2.57     P-val=0.0588
+Anderson-Rubin Wald test           Chi-sq(4)=     11.08     P-val=0.0256
+Stock-Wright LM S statistic        Chi-sq(4)=      8.02     P-val=0.0908
+
+NB: Underidentification, weak identification and weak-identification-robust
+    test statistics cluster-robust
+
+Number of clusters             N_clust  =         30
+Number of observations               N  =        150
+Number of regressors                 K  =          4
+Number of endogenous regressors      K1 =          1
+Number of instruments                L  =          7
+Number of excluded instruments       L1 =          4
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on team_id
+
+Number of clusters (team_id) =      30                Number of obs =      150
+                                                      F(  3,    29) =    36.58
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  5.439656112                Centered R2   =   0.3722
+Total (uncentered) SS   =  16.36324644                Uncentered R2 =   0.7913
+Residual SS             =  3.415036455                Root MSE      =    .1509
+
+-----------------------------------------------------------------------------------
+                  |               Robust
+  Composite_Score |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+------------------+----------------------------------------------------------------
+     cActive_Gini |   -.047357   .6312416    -0.08   0.940    -1.284568    1.189854
+     Pct_Inactive |   -.669878   .1128754    -5.93   0.000    -.8911098   -.4486463
+Injury_Cash_Share |  -.6677624   .1541829    -4.33   0.000    -.9699553   -.3655695
+            _cons |   .5069871   .0391899    12.94   0.000     .4301763     .583798
+-----------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             12.519
+                                                   Chi-sq(4) P-val =    0.0139
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):                4.433
+                         (Kleibergen-Paap rk Wald F statistic):          4.619
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    16.85
+                                         10% maximal IV relative bias    10.27
+                                         20% maximal IV relative bias     6.71
+                                         30% maximal IV relative bias     5.34
+                                         10% maximal IV size             24.58
+                                         15% maximal IV size             13.96
+                                         20% maximal IV size             10.26
+                                         25% maximal IV size              8.31
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         7.436
+                                                   Chi-sq(3) P-val =    0.0592
+------------------------------------------------------------------------------
+Instrumented:         cActive_Gini
+Included instruments: Pct_Inactive Injury_Cash_Share
+Excluded instruments: L.ln_CapMax_USD L.MinJump_Pct L.GM_Turnover
+                      L2.Active_Gini
+------------------------------------------------------------------------------
+
+.   
+. 
+. ///////////////////////////////////////////////////////////////////////////////
+> // Probit Model for Round Indicators (Progression through playoff rounds)
+. ///////////////////////////////////////////////////////////////////////////////
+> 
+. // Generate round indicators based on the furthest round reached
+. gen reach1 = (Furthest_RoundReached != "Conference First Round" & Furthest_RoundReached != "Conference Semifinals" & 
+> Furthest_RoundReached != "Conference Finals" & Furthest_RoundReached != "Finals")   // teams that did not make playof
+> fs
+
+. gen reach2 = (Furthest_RoundReached == "Conference First Round") // teams reaching at least the first round
+
+. gen reach3 = (Furthest_RoundReached == "Conference Semifinals")  // teams reaching at least the conference semifinals
+
+. gen reach4 = (Furthest_RoundReached == "Conference Finals")      // teams reaching at least the conference finals
+
+. 
+. // Calculate the mean of Injury_Cash_Share and Pct_Inactive for each team by season
+. bysort team_id Season: egen mean_Injury_Cash_Share = mean(Injury_Cash_Share)
+
+. bysort team_id Season: egen mean_Pct_Inactive = mean(Pct_Inactive)
+
+. 
+. // Probit Model for Round Indicators
+. 
+. // Probit for teams reaching at least the first round (reach2), with season fixed effects
+. probit reach2 c.mean_Injury_Cash_Share c.mean_Pct_Inactive ln_Team_Total i.Season, vce(cluster team_id)
+
+Iteration 0:   log pseudolikelihood = -121.78219  
+Iteration 1:   log pseudolikelihood =  -112.5938  
+Iteration 2:   log pseudolikelihood = -112.48061  
+Iteration 3:   log pseudolikelihood = -112.48053  
+Iteration 4:   log pseudolikelihood = -112.48053  
+
+Probit regression                               Number of obs     =        210
+                                                Wald chi2(9)      =      11.27
+                                                Prob > chi2       =     0.2576
+Log pseudolikelihood = -112.48053               Pseudo R2         =     0.0764
+
+                                         (Std. Err. adjusted for 30 clusters in team_id)
+----------------------------------------------------------------------------------------
+                       |               Robust
+                reach2 |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-----------------------+----------------------------------------------------------------
+mean_Injury_Cash_Share |  -2.190626   1.252376    -1.75   0.080    -4.645238    .2639864
+     mean_Pct_Inactive |  -2.501112   1.081952    -2.31   0.021      -4.6217   -.3805244
+         ln_Team_Total |   1.153035   .9399636     1.23   0.220    -.6892597     2.99533
+                       |
+                Season |
+                 2018  |   .0608706   .3540552     0.17   0.863    -.6330648    .7548061
+                 2019  |   .0074195   .3430955     0.02   0.983    -.6650354    .6798744
+                 2020  |  -.0116963     .39769    -0.03   0.977    -.7911544    .7677617
+                 2021  |   .0360689    .447963     0.08   0.936    -.8419224    .9140603
+                 2022  |  -.2230659   .4453629    -0.50   0.616    -1.095961    .6498293
+                 2023  |  -.4160624   .4917579    -0.85   0.398     -1.37989    .5477654
+                       |
+                 _cons |  -21.36184   17.44585    -1.22   0.221    -55.55507    12.83139
+----------------------------------------------------------------------------------------
+
+. margins, dydx(*) atmeans
+
+Conditional marginal effects                    Number of obs     =        210
+Model VCE    : Robust
+
+Expression   : Pr(reach2), predict()
+dy/dx w.r.t. : mean_Injury_Cash_Share mean_Pct_Inactive ln_Team_Total 2018.Season 2019.Season 2020.Season 2021.Season
+               2022.Season 2023.Season
+at           : mean_Injur~e    =    .1954005 (mean)
+               mean_Pct_I~e    =    .1506114 (mean)
+               ln_Team_To~l    =    18.69037 (mean)
+               2017.Season     =    .1428571 (mean)
+               2018.Season     =    .1428571 (mean)
+               2019.Season     =    .1428571 (mean)
+               2020.Season     =    .1428571 (mean)
+               2021.Season     =    .1428571 (mean)
+               2022.Season     =    .1428571 (mean)
+               2023.Season     =    .1428571 (mean)
+
+----------------------------------------------------------------------------------------
+                       |            Delta-method
+                       |      dy/dx   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-----------------------+----------------------------------------------------------------
+mean_Injury_Cash_Share |  -.6868979   .3752708    -1.83   0.067    -1.422415    .0486193
+     mean_Pct_Inactive |  -.7842548   .3222922    -2.43   0.015    -1.415936   -.1525737
+         ln_Team_Total |   .3615485   .3048756     1.19   0.236    -.2359967    .9590936
+                       |
+                Season |
+                 2018  |   .0204566    .118933     0.17   0.863    -.2126477    .2535609
+                 2019  |   .0024541   .1134611     0.02   0.983    -.2199255    .2248337
+                 2020  |   -.003846   .1308543    -0.03   0.977    -.2603156    .2526236
+                 2021  |   .0120338   .1491564     0.08   0.936    -.2803073    .3043749
+                 2022  |  -.0682344   .1377115    -0.50   0.620    -.3381439    .2016752
+                 2023  |  -.1179322   .1410403    -0.84   0.403     -.394366    .1585017
+----------------------------------------------------------------------------------------
+Note: dy/dx for factor levels is the discrete change from the base level.
+
+. 
+. // Probit for teams reaching at least the conference semifinals (reach3), conditional on reaching the first round (re
+> ach2 == 1), with season fixed effects
+. probit reach3 c.mean_Injury_Cash_Share c.mean_Pct_Inactive ln_Team_Total i.Season, vce(cluster team_id)
+
+Iteration 0:   log pseudolikelihood = -82.461638  
+Iteration 1:   log pseudolikelihood = -76.951259  
+Iteration 2:   log pseudolikelihood = -76.774732  
+Iteration 3:   log pseudolikelihood = -76.773977  
+Iteration 4:   log pseudolikelihood = -76.773977  
+
+Probit regression                               Number of obs     =        210
+                                                Wald chi2(9)      =      47.60
+                                                Prob > chi2       =     0.0000
+Log pseudolikelihood = -76.773977               Pseudo R2         =     0.0690
+
+                                         (Std. Err. adjusted for 30 clusters in team_id)
+----------------------------------------------------------------------------------------
+                       |               Robust
+                reach3 |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-----------------------+----------------------------------------------------------------
+mean_Injury_Cash_Share |  -1.735979   .9075273    -1.91   0.056      -3.5147    .0427415
+     mean_Pct_Inactive |  -2.227712   .8864299    -2.51   0.012    -3.965083   -.4903418
+         ln_Team_Total |    1.61652   .8548288     1.89   0.059    -.0589139    3.291953
+                       |
+                Season |
+                 2018  |  -.0282745   .3965092    -0.07   0.943    -.8054183    .7488693
+                 2019  |  -.0663416   .4151765    -0.16   0.873    -.8800725    .7473894
+                 2020  |  -.1674546   .3657243    -0.46   0.647    -.8842612    .5493519
+                 2021  |  -.1133395   .4676233    -0.24   0.808    -1.029864    .8031854
+                 2022  |  -.4277822    .515604    -0.83   0.407    -1.438347     .582783
+                 2023  |  -.5892522   .6146025    -0.96   0.338    -1.793851    .6153465
+                       |
+                 _cons |  -30.55524    15.9386    -1.92   0.055    -61.79433    .6838452
+----------------------------------------------------------------------------------------
+
+. margins, dydx(*) atmeans
+
+Conditional marginal effects                    Number of obs     =        210
+Model VCE    : Robust
+
+Expression   : Pr(reach3), predict()
+dy/dx w.r.t. : mean_Injury_Cash_Share mean_Pct_Inactive ln_Team_Total 2018.Season 2019.Season 2020.Season 2021.Season
+               2022.Season 2023.Season
+at           : mean_Injur~e    =    .1954005 (mean)
+               mean_Pct_I~e    =    .1506114 (mean)
+               ln_Team_To~l    =    18.69037 (mean)
+               2017.Season     =    .1428571 (mean)
+               2018.Season     =    .1428571 (mean)
+               2019.Season     =    .1428571 (mean)
+               2020.Season     =    .1428571 (mean)
+               2021.Season     =    .1428571 (mean)
+               2022.Season     =    .1428571 (mean)
+               2023.Season     =    .1428571 (mean)
+
+----------------------------------------------------------------------------------------
+                       |            Delta-method
+                       |      dy/dx   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-----------------------+----------------------------------------------------------------
+mean_Injury_Cash_Share |  -.3308327   .1967833    -1.68   0.093    -.7165209    .0548555
+     mean_Pct_Inactive |  -.4245443   .1725442    -2.46   0.014    -.7627248   -.0863639
+         ln_Team_Total |   .3080668   .1518492     2.03   0.042     .0104479    .6056857
+                       |
+                Season |
+                 2018  |  -.0066312   .0931203    -0.07   0.943    -.1891437    .1758812
+                 2019  |  -.0152543    .095874    -0.16   0.874     -.203164    .1726554
+                 2020  |  -.0364752   .0816864    -0.45   0.655    -.1965776    .1236273
+                 2021  |  -.0254203   .1048804    -0.24   0.808    -.2309822    .1801415
+                 2022  |  -.0803537   .0971494    -0.83   0.408    -.2707629    .1100555
+                 2023  |  -.1005155   .1034509    -0.97   0.331    -.3032756    .1022446
+----------------------------------------------------------------------------------------
+Note: dy/dx for factor levels is the discrete change from the base level.
+
+. 
+. 
+. // Probit for teams reaching at least the conference finals (reach4), conditional on reaching the semifinals (reach3 
+> == 1), with season fixed effects
+. probit reach4 c.mean_Injury_Cash_Share c.mean_Pct_Inactive ln_Team_Total i.Season, vce(cluster team_id)
+
+Iteration 0:   log pseudolikelihood = -51.435306  
+Iteration 1:   log pseudolikelihood = -49.753939  
+Iteration 2:   log pseudolikelihood = -49.715181  
+Iteration 3:   log pseudolikelihood = -49.715135  
+Iteration 4:   log pseudolikelihood = -49.715135  
+
+Probit regression                               Number of obs     =        210
+                                                Wald chi2(9)      =       6.66
+                                                Prob > chi2       =     0.6720
+Log pseudolikelihood = -49.715135               Pseudo R2         =     0.0334
+
+                                         (Std. Err. adjusted for 30 clusters in team_id)
+----------------------------------------------------------------------------------------
+                       |               Robust
+                reach4 |      Coef.   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-----------------------+----------------------------------------------------------------
+mean_Injury_Cash_Share |  -1.219539   1.624751    -0.75   0.453    -4.403992    1.964913
+     mean_Pct_Inactive |  -1.660453   1.422976    -1.17   0.243    -4.449434    1.128529
+         ln_Team_Total |   .6277784   .8372983     0.75   0.453    -1.013296    2.268853
+                       |
+                Season |
+                 2018  |   .0123882   .5116587     0.02   0.981    -.9904445    1.015221
+                 2019  |  -.0174631   .3695245    -0.05   0.962    -.7417178    .7067917
+                 2020  |  -.0067539   .5468701    -0.01   0.990      -1.0786    1.065092
+                 2021  |   .0361391   .5970427     0.06   0.952    -1.134043    1.206321
+                 2022  |  -.1183042   .3616304    -0.33   0.744    -.8270868    .5904785
+                 2023  |  -.2140904   .6156818    -0.35   0.728    -1.420805    .9926237
+                       |
+                 _cons |   -12.7593   15.56432    -0.82   0.412    -43.26481    17.74621
+----------------------------------------------------------------------------------------
+
+. margins, dydx(*) atmeans
+
+Conditional marginal effects                    Number of obs     =        210
+Model VCE    : Robust
+
+Expression   : Pr(reach4), predict()
+dy/dx w.r.t. : mean_Injury_Cash_Share mean_Pct_Inactive ln_Team_Total 2018.Season 2019.Season 2020.Season 2021.Season
+               2022.Season 2023.Season
+at           : mean_Injur~e    =    .1954005 (mean)
+               mean_Pct_I~e    =    .1506114 (mean)
+               ln_Team_To~l    =    18.69037 (mean)
+               2017.Season     =    .1428571 (mean)
+               2018.Season     =    .1428571 (mean)
+               2019.Season     =    .1428571 (mean)
+               2020.Season     =    .1428571 (mean)
+               2021.Season     =    .1428571 (mean)
+               2022.Season     =    .1428571 (mean)
+               2023.Season     =    .1428571 (mean)
+
+----------------------------------------------------------------------------------------
+                       |            Delta-method
+                       |      dy/dx   Std. Err.      z    P>|z|     [95% Conf. Interval]
+-----------------------+----------------------------------------------------------------
+mean_Injury_Cash_Share |  -.1444838   .1847898    -0.78   0.434    -.5066653    .2176976
+     mean_Pct_Inactive |  -.1967206   .1727606    -1.14   0.255    -.5353252    .1418839
+         ln_Team_Total |   .0743755   .0986801     0.75   0.451     -.119034     .267785
+                       |
+                Season |
+                 2018  |   .0015851   .0654618     0.02   0.981    -.1267176    .1298878
+                 2019  |  -.0021845   .0461849    -0.05   0.962    -.0927053    .0883362
+                 2020  |  -.0008518   .0689674    -0.01   0.990    -.1360253    .1343218
+                 2021  |   .0047077   .0779693     0.06   0.952    -.1481094    .1575247
+                 2022  |  -.0136994   .0426832    -0.32   0.748    -.0973569    .0699581
+                 2023  |  -.0230169    .065565    -0.35   0.726    -.1515219    .1054882
+----------------------------------------------------------------------------------------
+Note: dy/dx for factor levels is the discrete change from the base level.
+
+. 
+. 
+. //////////////////////////////////////////////
+> // Final Check and Export Results
+. //////////////////////////////////////////////
+> 
+. summarize top3_share, meanonly 
+
+. gen c_top3 = top3_share   - r(mean) 
+
+. summarize Injury_Cash_Share, meanonly 
+
+. gen c_inj   = Injury_Cash_Share - r(mean) 
+
+. gen year_trend = Season - 2016
+
+. 
+. *  B. Recreate the (now centered) interaction 
+. gen c_top3_inj = c_top3 * c_inj 
+
+. 
+. *  C. Re-run your pooled OLS with season dummies 
+. regress Composite_Score ln_Team_Total Pct_Inactive c_top3 c_inj c_top3_inj year_trend, vce(cluster team_id)
+
+Linear regression                               Number of obs     =        210
+                                                F(6, 29)          =      23.97
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4551
+                                                Root MSE          =      .1429
+
+                                (Std. Err. adjusted for 30 clusters in team_id)
+-------------------------------------------------------------------------------
+              |               Robust
+Composite_S~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+--------------+----------------------------------------------------------------
+ln_Team_Total |   .3942678    .069829     5.65   0.000     .2514515    .5370841
+ Pct_Inactive |  -.5474256   .0710332    -7.71   0.000    -.6927048   -.4021464
+       c_top3 |   .1178253   .1081738     1.09   0.285     -.103415    .3390655
+        c_inj |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+   c_top3_inj |    .154403   .8082993     0.19   0.850    -1.498755    1.807561
+   year_trend |  -.0179455    .008519    -2.11   0.044    -.0353687   -.0005223
+        _cons |  -6.942529   1.281038    -5.42   0.000    -9.562547   -4.322511
+-------------------------------------------------------------------------------
+
+.  
+. *  D. Check that VIFs fall to a reasonable range 
+. estat vif 
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ln_Team_To~l |      2.38    0.420988
+  year_trend |      2.16    0.463443
+      c_top3 |      1.28    0.779547
+       c_inj |      1.24    0.806698
+  c_top3_inj |      1.21    0.825094
+Pct_Inactive |      1.15    0.867360
+-------------+----------------------
+    Mean VIF |      1.57
+
+. 
+. *  E. Recover the same marginal effects 
+. 
+. margins, dydx(c_inj) /// 
+>     at(c_top3 = (0 0.20 0.40 0.6 0.8)) predict(xb) 
+
+Average marginal effects                        Number of obs     =        210
+Model VCE    : Robust
+
+Expression   : Linear prediction, predict(xb)
+dy/dx w.r.t. : c_inj
+
+1._at        : c_top3          =           0
+
+2._at        : c_top3          =          .2
+
+3._at        : c_top3          =          .4
+
+4._at        : c_top3          =          .6
+
+5._at        : c_top3          =          .8
+
+------------------------------------------------------------------------------
+             |            Delta-method
+             |      dy/dx   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+c_inj        |
+         _at |
+          1  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          2  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          3  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          4  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          5  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+------------------------------------------------------------------------------
+
+. marginsplot, xdimension(c_top3) /// 
+>     title("Marginal ∂Composite/∂Injury_Cash at Varying Centered Top-3 Shares") ytitle("Δ Composite per 1pp Injury Cas
+> h") noci 
+
+  Variables that uniquely identify margins: c_top3
+
+. 
+. *  A. Flag “Contender” by Last Season’s Win % ≥ 50% 
+. keep if L.Win_Loss_Pct >= 0.50 
+(81 observations deleted)
+
+. *  C. Recover Marginal Effects for Managers 
+. margins, dydx(c_inj) /// 
+>     at(c_top3 = (-0.20 0 0.20 0.40)) predict(xb) 
+
+Average marginal effects                        Number of obs     =        129
+Model VCE    : Robust
+
+Expression   : Linear prediction, predict(xb)
+dy/dx w.r.t. : c_inj
+
+1._at        : c_top3          =         -.2
+
+2._at        : c_top3          =           0
+
+3._at        : c_top3          =          .2
+
+4._at        : c_top3          =          .4
+
+------------------------------------------------------------------------------
+             |            Delta-method
+             |      dy/dx   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+c_inj        |
+         _at |
+          1  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          2  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          3  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+          4  |  -.7344833   .1061522    -6.92   0.000    -.9515889   -.5173776
+------------------------------------------------------------------------------
+
+. *  B. Re-estimate Interaction Model on Contenders Only 
+. regress Composite_Score /// 
+>     ln_Team_Total Pct_Inactive c_top3 c_inj c_top3_inj year_trend, /// 
+>     vce(cluster team_id)
+
+Linear regression                               Number of obs     =        129
+                                                F(6, 29)          =      15.27
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.4000
+                                                Root MSE          =     .15088
+
+                                (Std. Err. adjusted for 30 clusters in team_id)
+-------------------------------------------------------------------------------
+              |               Robust
+Composite_S~e |      Coef.   Std. Err.      t    P>|t|     [95% Conf. Interval]
+--------------+----------------------------------------------------------------
+ln_Team_Total |   .2988709     .09734     3.07   0.005     .0997884    .4979535
+ Pct_Inactive |  -.6583396   .1123149    -5.86   0.000    -.8880495   -.4286298
+       c_top3 |   .0984318   .1874527     0.53   0.604     -.284952    .4818155
+        c_inj |  -.7545984   .1744549    -4.33   0.000    -1.111399   -.3977981
+   c_top3_inj |   .0255816   1.241436     0.02   0.984     -2.51344    2.564603
+   year_trend |  -.0091272   .0116677    -0.78   0.440    -.0329904    .0147361
+        _cons |  -5.152677   1.789532    -2.88   0.007    -8.812681   -1.492674
+-------------------------------------------------------------------------------
+
+. estimates store Contender_C 
+
+. * (3) Quick joint test of the star‐injury block 
+. test c_inj c_top3_inj 
+
+ ( 1)  c_inj = 0
+ ( 2)  c_top3_inj = 0
+
+       F(  2,    29) =   22.85
+            Prob > F =    0.0000
+
+. estat vif
+
+    Variable |       VIF       1/VIF  
+-------------+----------------------
+ln_Team_To~l |      2.93    0.341441
+  year_trend |      2.81    0.355569
+       c_inj |      1.63    0.614116
+  c_top3_inj |      1.58    0.632266
+      c_top3 |      1.18    0.844472
+Pct_Inactive |      1.11    0.901709
+-------------+----------------------
+    Mean VIF |      1.87
+
+. * (4) Check interaction p-value 
+. display _b[c_top3_inj] "  (SE=" _se[c_top3_inj] ")   p=" 2*ttail(e(df_r),abs(_b[c_top3_inj]/_se[c_top3_inj])) 
+.02558156  (SE=1.2414358)   p=.98370074
+
+. 
+. margins, dydx(c_inj) at(c_top3 = (-0.20 0 0.20 0.40)) predict(xb) 
+
+Average marginal effects                        Number of obs     =        129
+Model VCE    : Robust
+
+Expression   : Linear prediction, predict(xb)
+dy/dx w.r.t. : c_inj
+
+1._at        : c_top3          =         -.2
+
+2._at        : c_top3          =           0
+
+3._at        : c_top3          =          .2
+
+4._at        : c_top3          =          .4
+
+------------------------------------------------------------------------------
+             |            Delta-method
+             |      dy/dx   Std. Err.      t    P>|t|     [95% Conf. Interval]
+-------------+----------------------------------------------------------------
+c_inj        |
+         _at |
+          1  |  -.7545984   .1744549    -4.33   0.000    -1.111399   -.3977981
+          2  |  -.7545984   .1744549    -4.33   0.000    -1.111399   -.3977981
+          3  |  -.7545984   .1744549    -4.33   0.000    -1.111399   -.3977981
+          4  |  -.7545984   .1744549    -4.33   0.000    -1.111399   -.3977981
+------------------------------------------------------------------------------
+
+. 
+. marginsplot, /// 
+>     xdimension(c_top3) /// 
+>     title("Contenders: ∂Composite/∂Injury_Cash by Top-3 Share") /// 
+>     ytitle("Δ Composite per 1pp Injury Cash") noci 
+
+  Variables that uniquely identify margins: c_top3
+
+. 
+.         
+. log close
+      name:  <unnamed>
+       log:  C:\Users\rwb16854\Desktop\NBA_prep.log
+  log type:  text
+ closed on:  30 Apr 2025, 17:16:42
+-----------------------------------------------------------------------------------------------------------------------
